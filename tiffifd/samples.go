@@ -31,7 +31,7 @@ func Samples() []Scenario {
 		{Name: "endian", Run: func() map[string]any {
 			out := []byte{'M', 'M', 0, 42, 0, 0, 0, 8}
 			body := []byte{1, 0}
-			body = append(body, 0x01, 0x00, 0x03, 0x00, 0, 0, 0, 1, 0, 100, 0, 0)
+			body = append(body, 0x01, 0x00, 0x00, 0x03, 0, 0, 0, 1, 0, 100, 0, 0)
 			body = append(body, 0, 0, 0, 0)
 			file, _ := Parse(append(out, body...), &Counter{})
 			if file == nil {
@@ -62,9 +62,21 @@ func Samples() []Scenario {
 			first := BuildIFD([]entry{{0x0100, 3, 1, 100}})
 			data := append([]byte{}, first...)
 			data[22], data[23], data[24], data[25] = byte(len(data)), 0, 0, 0
-			data = append(data, BuildIFD([]entry{{0x0100, 3, 1, 200}})...)
+			second := BuildIFD([]entry{{0x0100, 3, 1, 200}})
+			data = append(data, second[8:]...)
 			file, _ := Parse(data, &Counter{})
 			return map[string]any{"ifds": len(file.IFDs)}
+		}},
+		{Name: "rational", Run: func() map[string]any {
+			// IFD 占 26 字节，RATIONAL（8 字节）从偏移 26 起外挂。
+			data := BuildIFD([]entry{{0x0112, 5, 1, 26}})
+			data = append(data, 1, 0, 0, 0, 3, 0, 0, 0)
+			file, _ := Parse(data, &Counter{})
+			values := file.Get(0, 0x0112, &Counter{})
+			if len(values) == 0 {
+				return map[string]any{"value": ""}
+			}
+			return map[string]any{"value": values[0]}
 		}},
 	}
 }
