@@ -31,7 +31,7 @@ func Samples() []Scenario {
 		{Name: "endian", Run: func() map[string]any {
 			out := []byte{'M', 'M', 0, 42, 0, 0, 0, 8}
 			body := []byte{1, 0}
-			body = append(body, 0x01, 0x00, 0x03, 0x00, 0, 0, 0, 1, 0, 100, 0, 0)
+			body = append(body, 0x01, 0x00, 0x00, 0x03, 0, 0, 0, 1, 0, 100, 0, 0)
 			body = append(body, 0, 0, 0, 0)
 			file, _ := Parse(append(out, body...), &Counter{})
 			if file == nil {
@@ -57,6 +57,19 @@ func Samples() []Scenario {
 			file, _ := Parse(data, &Counter{})
 			values := file.Get(0, 0x0100, &Counter{})
 			return map[string]any{"count": len(values)}
+		}},
+		{Name: "rational", Run: func() map[string]any {
+			out := []byte{'I', 'I', 42, 0, 8, 0, 0, 0}
+			body := []byte{1, 0}
+			body = append(body, 0x1A, 0x01, 5, 0, 1, 0, 0, 0, 26, 0, 0, 0)
+			body = append(body, 0, 0, 0, 0)
+			body = append(body, 72, 0, 0, 0, 1, 0, 0, 0)
+			file, _ := Parse(append(out, body...), &Counter{})
+			values := file.Get(0, 0x011A, &Counter{})
+			if len(values) == 0 {
+				return map[string]any{"xres": ""}
+			}
+			return map[string]any{"xres": values[0]}
 		}},
 		{Name: "next", Run: func() map[string]any {
 			first := BuildIFD([]entry{{0x0100, 3, 1, 100}})

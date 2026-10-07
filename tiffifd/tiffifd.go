@@ -2,6 +2,7 @@
 package tiffifd
 
 import (
+	"encoding/binary"
 	"errors"
 	"strconv"
 )
@@ -31,63 +32,77 @@ func typeSize(t int) int {
 	return 1
 }
 
-func u16(b []byte) int {
-	return int(b[0]) | int(b[1])<<8
-}
-
-func u32(b []byte) int {
-	return int(b[0]) | int(b[1])<<8 | int(b[2])<<16 | int(b[3])<<24
-}
-
 // Parse 解析整份文件。
 func Parse(data []byte, c *Counter) (*File, error) {
-	if len(data) < 8 || string(data[:2]) != "II" {
+	if len(data) < 8 {
 		return nil, errors.New("bad-header")
 	}
+	var order binary.ByteOrder
 	file := &File{}
-	offset := u32(data[4:8])
+	switch string(data[:2]) {
+	case "II":
+		order = binary.LittleEndian
+	case "MM":
+		order = binary.BigEndian
+		file.BigEndian = true
+	default:
+		return nil, errors.New("bad-header")
+	}
+	if order.Uint16(data[2:4]) != 42 {
+		return nil, errors.New("bad-header")
+	}
+	offset := int(order.Uint32(data[4:8]))
 	for offset > 0 && offset+2 <= len(data) {
 		c.Scanned++
-		count := u16(data[offset:])
+		count := int(order.Uint16(data[offset:]))
 		ifd := map[int][]string{}
 		for i := 0; i < count; i++ {
 			base := offset + 2 + i*12
 			if base+12 > len(data) {
 				break
 			}
-			tag := u16(data[base:])
-			typ := u16(data[base+2:])
-			n := u32(data[base+4:])
+			tag := int(order.Uint16(data[base:]))
+			typ := int(order.Uint16(data[base+2:]))
+			n := int(order.Uint32(data[base+4:]))
 			field := data[base+8 : base+12]
-			values := readValues(data, typ, n, u32(field), c)
-			ifd[tag] = values
+			ifd[tag] = readValues(data, order, typ, n, field, c)
 		}
 		file.IFDs = append(file.IFDs, ifd)
-		break
+		next := offset + 2 + count*12
+		if next+4 > len(data) {
+			break
+		}
+		offset = int(order.Uint32(data[next:]))
 	}
 	return file, nil
 }
 
-func readValues(data []byte, typ, count, field int, c *Counter) []string {
+func readValues(data []byte, order binary.ByteOrder, typ, count int, field []byte, c *Counter) []string {
 	size := typeSize(typ)
 	total := size * count
-	start := field
-	if start+total > len(data) {
-		return nil
+	var buf []byte
+	if total <= 4 {
+		buf = field[:total]
+	} else {
+		start := int(order.Uint32(field))
+		if start+total > len(data) {
+			return nil
+		}
+		buf = data[start : start+total]
 	}
 	var out []string
 	for i := 0; i < count; i++ {
 		c.Scanned++
-		off := start + i*size
+		off := i * size
 		switch typ {
 		case 3:
-			out = append(out, strconv.Itoa(u16(data[off:])))
+			out = append(out, strconv.Itoa(int(order.Uint16(buf[off:]))))
 		case 4:
-			out = append(out, strconv.Itoa(u32(data[off:])))
+			out = append(out, strconv.Itoa(int(order.Uint32(buf[off:]))))
 		case 5:
-			out = append(out, strconv.Itoa(u32(data[off:]))+"/"+strconv.Itoa(u32(data[off+4:])))
+			out = append(out, strconv.Itoa(int(order.Uint32(buf[off:])))+"/"+strconv.Itoa(int(order.Uint32(buf[off+4:]))))
 		default:
-			out = append(out, string(data[off:off+size]))
+			out = append(out, string(buf[off:off+size]))
 		}
 	}
 	return out
@@ -98,11 +113,6 @@ func (f *File) Get(ifd, tag int, c *Counter) []string {
 	if ifd < 0 || ifd >= len(f.IFDs) {
 		return nil
 	}
-	for t, v := range f.IFDs[ifd] {
-		c.Scanned++
-		if t == tag {
-			return v
-		}
-	}
-	return nil
+	c.Scanned++
+	return f.IFDs[ifd][tag]
 }
